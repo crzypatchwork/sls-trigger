@@ -1,4 +1,4 @@
-'use strict';
+'use strict'
 
 const axios = require('axios')
 const MongoClient = require('mongodb').MongoClient
@@ -8,6 +8,86 @@ const url = process.env.MONGO_URI
 const dev = 'https://api.better-call.dev/v1/contract/mainnet/KT1RJ6PbjHpwc3M5rw5s2Nbmefwbuwbdxton/tokens'
 const client = new MongoClient(url)
 
+// method to populate the DB with all owners via upsert. Takes around 60 mins (500k records).
+const getOwners = async(arr,counter,owners) => {
+  /*
+  https://staging.api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&offset=0&limit=10
+  limit can be up to 1000
+  [{"key":{"nat":"68596","address":"tz1d7i7nUREze4LCpfonUeaJgdfhcWnoy7p9"},"value":"1"},..]
+  
+  owners collection: {"token_id": 999999, "owner_id": "tz123", "balance": 0 }
+  unique index on token_id, owner_id. Index on owner_id for search.
+  */
+  let res = await axios.get("https://staging.api.tzkt.io/v1/bigmaps/511/keys?sort.desc=id&select=key,value&limit=50&offset=" + counter)
+    .then(res => res.data)
+  res = await res.map(async e => {
+
+  try {
+    const query = {"token_id": parseInt(e.key.nat), "owner_id": e.key.address}
+    const update = { "$set": {"token_id":parseInt(e.key.nat), "owner_id": e.key.address, "balance": parseInt(e.value)} }
+    const options = { upsert: true };
+    console.log(e.key)
+    let r = await owners.updateOne(query, update, options)
+    if (r.modifiedCount === 1 || r.upsertedId !== null ) {
+      return true //updated or inserted something new
+    } else {
+      return false //change from false to true to interate thru all results.
+    }
+  } catch (err) {
+    console.log('err', e.key, err)
+    return false
+  }
+})
+
+  var promise = Promise.all(res.map(e => e))
+
+  promise.then(async (results) => {
+    if (!results.every( e => e === false)) { //looks at all results to see if there was a change
+      await getOwners(arr, counter + 50, owners) //fetch more records if some results were updated
+    }
+  })
+  console.log('end')
+  return [arr, ...res]
+
+}
+
+////////////////////////
+
+const getRoyalties = async(arr,counter,royalties) => {
+
+  // https://staging.api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&offset=0&limit=10
+  // limit can be up to 1000
+  // default is in ascending order
+  // {"key":"152","value":{"issuer":"tz1UBZUkXpKGhYsP5KtzDNqLLchwF4uHrGjw","royalties":"100"}}
+  let res = await axios.get("https://staging.api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&limit=20&offset=" + counter)
+  .then(res => res.data)
+  res = await res.map(async e => {
+
+  try {
+    console.log(e.key)
+    await royalties.insertOne({
+      token_id: e.key,
+      creator: e.value.issuer,
+      royalties: parseInt(e.value.royalties)/1000
+    })
+    return true
+  } catch (err) {
+    console.log('err', e.key, err)
+    return false 
+  }
+})
+
+  var promise = Promise.all(res.map(e => e))
+
+  promise.then(async (results) => {
+    if (!results.every( e => e === false)) {
+      await getRoyalties(arr, counter + 20, royalties)
+    }
+  })
+  console.log('end')
+  return [arr, ...res]
+
+}
 
 const getFeed = async (arr, counter, objkts) => {
 
@@ -24,7 +104,7 @@ const getFeed = async (arr, counter, objkts) => {
       await objkts.insertOne(e)
       return true
     } catch (err) {
-      console.log('err', e.token_id)
+      //console.log('err', e.token_id, err)
       return false
     }
 
@@ -50,10 +130,31 @@ const insertFeed = async () => {
   await getFeed([], 0, objkts)
 }
 
+const insertRoyalties = async () => {
+  await client.connect()
+  const database = client.db('OBJKTs-DB')
+  const royalties = database.collection('royalties')
+  //await royalties.createIndex( { 'token_id' : 1 }, { unique: true } )
+  await getRoyalties([], 0, royalties)
+}
+
+const insertTokenOwners = async () => {
+  await client.connect()
+  const database = client.db('OBJKTs-DB')
+  const owners = database.collection('owners')
+  //await owners.createIndex( { 'token_id' : 1, 'owner_id' : 1 }, { unique: true } )
+  //await owners.createIndex( { 'owner_id' : 1 } )
+  await getOwners([], 0, owners)
+}
+
 //insertFeed()
+//insertRoyalties()
+//insertTokenOwners()
 
 module.exports.insert = async (event) => {
   await insertFeed()
+  await insertRoyalties()
+  await insertTokenOwners()
   return {
     status : 200
   }
