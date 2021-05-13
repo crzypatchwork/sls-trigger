@@ -140,7 +140,9 @@ const getFeed = async (arr, counter, objkts) => {
 
   // gets latest objkts
 
-  let res = await axios.get("https://api.better-call.dev/v1/contract/mainnet/KT1RJ6PbjHpwc3M5rw5s2Nbmefwbuwbdxton/tokens?offset=" + counter).then(res => res.data)
+  let res = await axios
+    .get("https://api.better-call.dev/v1/contract/mainnet/KT1RJ6PbjHpwc3M5rw5s2Nbmefwbuwbdxton/tokens?offset=" + counter)
+    .then(res => res.data)
 
   res = await res.map(async e => {
 
