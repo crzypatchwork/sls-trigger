@@ -52,6 +52,53 @@ const getOwners = async(arr,counter,owners) => {
 }
 
 ////////////////////////
+// method to populate the DB with objkt curation hDAO balances via upsert. 
+// Full refresh takes around 10 mins (70k records).
+
+const getTokenCurationBalance = async(arr,counter,objkts) => {
+  /*
+  https://api.tzkt.io/v1/bigmaps/519/keys?sort.desc=id&select=key,value&offset=0&limit=10
+  limit can be up to 1000
+  [{"key":"69976","value":{"issuer":"tz1ZM3gyiFnaU9itgTshE7Z2jgG3bTk4TF2z","hDAO_balance":"4471"}},..]
+  
+  `token_curations` collection: {"token_id": 999999, "hdao_balance": 0 }
+  unique index on token_id.
+  *** API has `hDAO_balance` in objkt
+  Given the 1:1 relationship with objkt, this should be an object on `metadata` collection.
+  Iterate through bigmap. stop when no more updates after a `counter` updates no more records
+  Update only, if token_id missing, then will pick up in next call.
+  */
+
+  let res = await axios.get("https://api.tzkt.io/v1/bigmaps/519/keys?sort.desc=id&select=key,value&limit=50&offset=" + counter)
+    .then(res => res.data)
+  res = await res.map(async e => {
+
+  try {
+    const query = { "token_id": parseInt(e.key), hDAO_balance: {"$ne": parseInt(e.value.hDAO_balance) } }
+    const update = { "$set": {"hDAO_balance": parseInt(e.value.hDAO_balance)} }
+    console.log(e.key, e.value)
+    let r = await objkts.findOneAndUpdate(query, update)
+    console.log(r.lastErrorObject.updatedExisting)
+    if (r.lastErrorObject.updatedExisting === true ) {
+      return true //updated or inserted something new
+    } else {
+      return false //change from false to true to interate thru all results.
+    }
+  } catch (err) {
+    console.log('err', e.key, err)
+    return false
+  }
+})
+
+  var promise = Promise.all(res.map(e => e))
+
+  promise.then(async (results) => {
+    if (!results.every( e => e === false)) { //looks at all results to see if there was a change
+      await getTokenCurationBalance(arr, counter + 50, objkts) //fetch more records if some results were updated
+    }
+  })
+  console.log('end')
+  return [arr, ...res]
 
 const getRoyalties = async(arr,counter,royalties) => {
 
@@ -147,14 +194,23 @@ const insertTokenOwners = async () => {
   await getOwners([], 0, owners)
 }
 
+const insertTokenCurationBalance = async () => {
+  await client.connect()
+  const database = client.db('OBJKTs-DB')
+  const objkts = database.collection('metadata')
+  await getTokenCurationBalance([], 0, objkts)
+}
+
 //insertFeed()
 //insertRoyalties()
 //insertTokenOwners()
+//insertTokenCurationBalance()
 
 module.exports.insert = async (event) => {
   await insertFeed()
   await insertRoyalties()
   await insertTokenOwners()
+  await insertTokenCurationBalance()
   return {
     status : 200
   }
