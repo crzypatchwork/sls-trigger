@@ -100,35 +100,40 @@ const getTokenCurationBalance = async(arr,counter,objkts) => {
   console.log('end')
   return [arr, ...res]
 
-const getRoyalties = async(arr,counter,royalties) => {
+}
 
-  // https://staging.api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&offset=0&limit=10
+const getRoyalties = async(arr,counter,objkts) => {
+
+  // https://api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&offset=0&limit=10
   // limit can be up to 1000
   // default is in ascending order
   // {"key":"152","value":{"issuer":"tz1UBZUkXpKGhYsP5KtzDNqLLchwF4uHrGjw","royalties":"100"}}
-  let res = await axios.get("https://staging.api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&limit=20&offset=" + counter)
+  let res = await axios.get("https://api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&limit=20&offset=" + counter)
   .then(res => res.data)
   res = await res.map(async e => {
 
-  try {
-    console.log(e.key)
-    await royalties.insertOne({
-      token_id: e.key,
-      creator: e.value.issuer,
-      royalties: parseInt(e.value.royalties)/1000
-    })
-    return true
-  } catch (err) {
-    console.log('err', e.key, err)
-    return false 
-  }
-})
+    try {
+      const query = { "token_id": parseInt(e.key), royalties: {"$ne": parseInt(e.value.royalties)/1000 } }
+      const update = { "$set": {"royalties": parseInt(e.value.royalties)/1000 } }
+      console.log(e.key, e.value)
+      let r = await objkts.findOneAndUpdate(query, update)
+      console.log(r.lastErrorObject.updatedExisting)
+      if (r.lastErrorObject.updatedExisting === true ) {
+        return true //updated or inserted something new
+      } else {
+        return false //change from false to true to interate thru all results.
+      }
+    } catch (err) {
+      console.log('err', e.key, err)
+      return false
+    }
+  })
 
   var promise = Promise.all(res.map(e => e))
 
   promise.then(async (results) => {
     if (!results.every( e => e === false)) {
-      await getRoyalties(arr, counter + 20, royalties)
+      await getRoyalties(arr, counter + 20, objkts)
     }
   })
   console.log('end')
@@ -182,9 +187,8 @@ const insertFeed = async () => {
 const insertRoyalties = async () => {
   await client.connect()
   const database = client.db('OBJKTs-DB')
-  const royalties = database.collection('royalties')
-  //await royalties.createIndex( { 'token_id' : 1 }, { unique: true } )
-  await getRoyalties([], 0, royalties)
+  const objkts = database.collection('metadata')
+  await getRoyalties([], 0, objkts)
 }
 
 const insertTokenOwners = async () => {
