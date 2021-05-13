@@ -11,14 +11,14 @@ const client = new MongoClient(url)
 // method to populate the DB with all owners via upsert. Takes around 60 mins (500k records).
 const getOwners = async(arr,counter,owners) => {
   /*
-  https://staging.api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&offset=0&limit=10
+  https://api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&offset=0&limit=10
   limit can be up to 1000
   [{"key":{"nat":"68596","address":"tz1d7i7nUREze4LCpfonUeaJgdfhcWnoy7p9"},"value":"1"},..]
   
   owners collection: {"token_id": 999999, "owner_id": "tz123", "balance": 0 }
   unique index on token_id, owner_id. Index on owner_id for search.
   */
-  let res = await axios.get("https://staging.api.tzkt.io/v1/bigmaps/511/keys?sort.desc=id&select=key,value&limit=50&offset=" + counter)
+  let res = await axios.get("https://api.tzkt.io/v1/bigmaps/511/keys?sort.desc=id&select=key,value&limit=50&offset=" + counter)
     .then(res => res.data)
   res = await res.map(async e => {
 
