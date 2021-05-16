@@ -102,6 +102,77 @@ const getTokenCurationBalance = async(arr,counter,objkts) => {
 
 }
 
+////////////////////////
+// method to populate the DB with objkt curation hDAO balances via upsert. 
+// Full refresh takes around 10 mins (70k records).
+
+const getSwaps = async(arr,counter,swaps) => {
+  /*
+  https://api.tzkt.io/v1/bigmaps/523/keys?sort.desc=id&offset=0&limit=100
+  limit can be up to 1000
+  [{"id":1210695,"active":true,"hash":"expruPNtEb5v3PLGHEFrnQTNAL7TZX38TQkvWcj3KAYNZ8PMp3yxwQ",
+    "key":"150293","value":{"issuer":"tz1ViMzA17dRAZpCopuckBHdphMua26YDVgN","objkt_id":"46019",
+    "objkt_amount":"1","xtz_per_objkt":"4300000"},"firstLevel":1473980,"lastLevel":1473980,
+    "updates":1}, ...]
+  
+  `swaps` collection: {"token_id": 999999, "swap_id": 12345, "objkt_amount": 1, "xtz_per_objkt": 100000,
+      "issuer": "tz123", "active": true}
+  unique index on swap_id. natural key on token_id, issuer. facts: active (status), price, amt.
+  
+  Iterate through bigmap. stop when no more updates after a `counter` updates no more records
+  Update only, if token_id missing, then will pick up in next call.
+  */
+
+  let res = await axios.get("https://api.tzkt.io/v1/bigmaps/523/keys?sort.desc=id&limit=100&offset=" + counter)
+    .then(res => res.data)
+  res = await res.map(async e => {
+
+  try {
+    const query = { 
+      swap_id: parseInt(e.key), 
+        "$or": [
+          {status: {"$ne": e.value.active}},
+          {objkt_amount: {"$ne": parseInt(e.value.objkt_amount)}},
+          {xtz_per_objkt: {"$ne": parseInt(e.value.xtz_per_objkt)}}
+        ]
+    }
+    const update = {
+      "$set": {
+        token_id: parseInt(e.value.objkt_id), 
+        issuer: e.value.issuer,
+        status: e.active,
+        objkt_amount: parseInt(e.value.objkt_amount),
+        xtz_per_objkt: parseInt(e.value.xtz_per_objkt)
+      }
+    }
+    const options = { upsert: true };
+    console.log(e.id, "swap_id:", e.key) //, e.value, e.active)
+    let r = await swaps.updateOne(query, update, options)
+    if (r.modifiedCount === 1 || r.upsertedId !== null ) {
+      //console.log("t", r.modifiedCount, r.upsertedId)
+      return true //updated or inserted something new
+    } else {
+      //console.log("f", r.modifiedCount, r.upsertedId)
+      return false //change from false to true to interate thru all results.
+    }
+  } catch (err) {
+    console.log('err', e.key, err)
+    return false
+  }
+})
+
+  var promise = Promise.all(res.map(e => e))
+
+  promise.then(async (results) => {
+    if (!results.every( e => e === false)) { //looks at all results to see if there was a change
+      await getSwaps(arr, counter + 100, swaps) //fetch more records if some results were updated
+    }
+  })
+  console.log('end')
+  return [arr, ...res]
+
+}
+
 const getRoyalties = async(arr,counter,objkts) => {
 
   // https://api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&offset=0&limit=10
@@ -207,16 +278,25 @@ const insertTokenCurationBalance = async () => {
   await getTokenCurationBalance([], 0, objkts)
 }
 
+const insertSwaps = async () => {
+  await client.connect()
+  const database = client.db('OBJKTs-DB')
+  const swaps = database.collection('swaps')
+  await getSwaps([], 0, swaps)
+}
+
 //insertFeed()
 //insertRoyalties()
 //insertTokenOwners()
 //insertTokenCurationBalance()
+//insertSwaps()
 
 module.exports.insert = async (event) => {
   await insertFeed()
   await insertRoyalties()
   await insertTokenOwners()
   await insertTokenCurationBalance()
+  await insertSwaps()
   return {
     status : 200
   }
