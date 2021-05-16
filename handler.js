@@ -103,8 +103,8 @@ const getTokenCurationBalance = async(arr,counter,objkts) => {
 }
 
 ////////////////////////
-// method to populate the DB with objkt curation hDAO balances via upsert. 
-// Full refresh takes around 10 mins (70k records).
+// method to populate the DB with swaps via upsert. 
+// Full refresh takes around 10 mins (150k records).
 
 const getSwaps = async(arr,counter,swaps) => {
   /*
@@ -173,6 +173,63 @@ const getSwaps = async(arr,counter,swaps) => {
 
 }
 
+
+////////////////////////
+// method to populate the DB with user hDAO via upsert. 
+// Full refresh takes around 2 mins (3k records).
+
+const getHDAOBalances = async(arr,counter,hDAOBalances) => {
+  /*
+  https://api.tzkt.io/v1/bigmaps/515/keys?sort.desc=id&select=key,value&offset=0&limit=100
+  limit can be up to 1000
+  [{"key":{"nat":"0","address":"tz1gk59qsxEYJyq1owS6NqV61hA2nD8nihyH"},"value":"99651"}, ...]
+  
+  `hdao_balances` collection: {"wallet": "tz123", balance: 12345}
+  unique index on wallet. facts: balance. Balances are set to 0 rather than active=false.
+  
+  Iterate through bigmap. stop when no more updates after a `counter` updates no more records
+  Update only, if token_id missing, then will pick up in next call.
+  */
+
+  let res = await axios.get("https://api.tzkt.io/v1/bigmaps/515/keys?sort.desc=id&select=key,value&limit=50&offset=" + counter)
+    .then(res => res.data)
+  res = await res.map(async e => {
+
+  try {
+    const query = { 
+      wallet: e.key.address, balance: {"$ne": parseInt(e.value)} 
+    }
+    const update = {"$set": {value: parseInt(e.value)}}
+    const options = { upsert: true }
+    console.log("wallet:", e.key.address)
+    let r = await hDAOBalances.updateOne(query, update, options)
+    if (r.modifiedCount === 1 || r.upsertedId !== null ) {
+      //console.log("t", r.modifiedCount, r.upsertedId)
+      return true //updated or inserted something new
+    } else {
+      //console.log("f", r.modifiedCount, r.upsertedId)
+      return false //change from false to true to interate thru all results.
+    }
+  } catch (err) {
+    console.log('err', e.key, err)
+    return false
+  }
+})
+
+  var promise = Promise.all(res.map(e => e))
+
+  promise.then(async (results) => {
+    if (!results.every( e => e === false)) { //looks at all results to see if there was a change
+      await getHDAOBalances(arr, counter + 50, hDAOBalances) //fetch more records if some results were updated
+    }
+  })
+  console.log('end')
+  return [arr, ...res]
+
+}
+
+
+//////////////
 const getRoyalties = async(arr,counter,objkts) => {
 
   // https://api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&offset=0&limit=10
@@ -285,11 +342,19 @@ const insertSwaps = async () => {
   await getSwaps([], 0, swaps)
 }
 
+const insertHDAOBalances = async () => {
+  await client.connect()
+  const database = client.db('OBJKTs-DB')
+  const hDAOBalances = database.collection('hdao_balances')
+  await getHDAOBalances([], 0, hDAOBalances)
+}
+
 //insertFeed()
 //insertRoyalties()
 //insertTokenOwners()
 //insertTokenCurationBalance()
 //insertSwaps()
+//insertHDAOBalances()
 
 module.exports.insert = async (event) => {
   await insertFeed()
@@ -297,6 +362,7 @@ module.exports.insert = async (event) => {
   await insertTokenOwners()
   await insertTokenCurationBalance()
   await insertSwaps()
+  await insertHDAOBalances()
   return {
     status : 200
   }
