@@ -10,7 +10,7 @@ const dev = 'https://api.better-call.dev/v1/contract/mainnet/KT1RJ6PbjHpwc3M5rw5
 const client = new MongoClient(url)
 
 // method to populate the DB with all owners via upsert. Takes around 60 mins (500k records).
-const getOwners = async(arr,counter,owners) => {
+const getOwners = async (arr, counter, owners) => {
   /*
   https://api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&offset=0&limit=10
   limit can be up to 1000
@@ -23,27 +23,27 @@ const getOwners = async(arr,counter,owners) => {
     .then(res => res.data)
   res = await res.map(async e => {
 
-  try {
-    const query = {"token_id": parseInt(e.key.nat), "owner_id": e.key.address}
-    const update = { "$set": {"token_id":parseInt(e.key.nat), "owner_id": e.key.address, "balance": parseInt(e.value)} }
-    const options = { upsert: true };
-    console.log(e.key)
-    let r = await owners.updateOne(query, update, options)
-    if (r.modifiedCount === 1 || r.upsertedId !== null ) {
-      return true //updated or inserted something new
-    } else {
-      return false //change from false to true to interate thru all results.
+    try {
+      const query = { "token_id": parseInt(e.key.nat), "owner_id": e.key.address }
+      const update = { "$set": { "token_id": parseInt(e.key.nat), "owner_id": e.key.address, "balance": parseInt(e.value) } }
+      const options = { upsert: true };
+      console.log(e.key)
+      let r = await owners.updateOne(query, update, options)
+      if (r.modifiedCount === 1 || r.upsertedId !== null) {
+        return true //updated or inserted something new
+      } else {
+        return false //change from false to true to interate thru all results.
+      }
+    } catch (err) {
+      console.log('err', e.key, err)
+      return false
     }
-  } catch (err) {
-    console.log('err', e.key, err)
-    return false
-  }
-})
+  })
 
   var promise = Promise.all(res.map(e => e))
 
   promise.then(async (results) => {
-    if (!results.every( e => e === false)) { //looks at all results to see if there was a change
+    if (!results.every(e => e === false)) { //looks at all results to see if there was a change
       await getOwners(arr, counter + 50, owners) //fetch more records if some results were updated
     }
   })
@@ -56,7 +56,7 @@ const getOwners = async(arr,counter,owners) => {
 // method to populate the DB with objkt curation hDAO balances via upsert. 
 // Full refresh takes around 10 mins (70k records).
 
-const getTokenCurationBalance = async(arr,counter,objkts) => {
+const getTokenCurationBalance = async (arr, counter, objkts) => {
   /*
   https://api.tzkt.io/v1/bigmaps/519/keys?sort.desc=id&select=key,value&offset=0&limit=10
   limit can be up to 1000
@@ -74,27 +74,27 @@ const getTokenCurationBalance = async(arr,counter,objkts) => {
     .then(res => res.data)
   res = await res.map(async e => {
 
-  try {
-    const query = { "token_id": parseInt(e.key), hDAO_balance: {"$ne": parseInt(e.value.hDAO_balance) } }
-    const update = { "$set": {"hDAO_balance": parseInt(e.value.hDAO_balance)} }
-    console.log(e.key, e.value)
-    let r = await objkts.findOneAndUpdate(query, update)
-    console.log(r.lastErrorObject.updatedExisting)
-    if (r.lastErrorObject.updatedExisting === true ) {
-      return true //updated or inserted something new
-    } else {
-      return false //change from false to true to interate thru all results.
+    try {
+      const query = { "token_id": parseInt(e.key), hDAO_balance: { "$ne": parseInt(e.value.hDAO_balance) } }
+      const update = { "$set": { "hDAO_balance": parseInt(e.value.hDAO_balance) } }
+      console.log(e.key, e.value)
+      let r = await objkts.findOneAndUpdate(query, update)
+      console.log(r.lastErrorObject.updatedExisting)
+      if (r.lastErrorObject.updatedExisting === true) {
+        return true //updated or inserted something new
+      } else {
+        return false //change from false to true to interate thru all results.
+      }
+    } catch (err) {
+      console.log('err', e.key, err)
+      return false
     }
-  } catch (err) {
-    console.log('err', e.key, err)
-    return false
-  }
-})
+  })
 
   var promise = Promise.all(res.map(e => e))
 
   promise.then(async (results) => {
-    if (!results.every( e => e === false)) { //looks at all results to see if there was a change
+    if (!results.every(e => e === false)) { //looks at all results to see if there was a change
       await getTokenCurationBalance(arr, counter + 50, objkts) //fetch more records if some results were updated
     }
   })
@@ -107,7 +107,7 @@ const getTokenCurationBalance = async(arr,counter,objkts) => {
 // method to populate the DB with swaps via upsert. 
 // Full refresh takes around 10 mins (150k records).
 
-const getSwaps = async(arr,counter,swaps) => {
+const getSwaps = async (arr, counter, swaps) => {
   /*
   https://api.tzkt.io/v1/bigmaps/523/keys?sort.desc=id&offset=0&limit=100
   limit can be up to 1000
@@ -128,44 +128,44 @@ const getSwaps = async(arr,counter,swaps) => {
     .then(res => res.data)
   res = await res.map(async e => {
 
-  try {
-    const query = { 
-      swap_id: parseInt(e.key), 
+    try {
+      const query = {
+        swap_id: parseInt(e.key),
         "$or": [
-          {status: {"$ne": e.value.active}},
-          {objkt_amount: {"$ne": parseInt(e.value.objkt_amount)}},
-          {xtz_per_objkt: {"$ne": parseInt(e.value.xtz_per_objkt)}}
+          { status: { "$ne": e.value.active } },
+          { objkt_amount: { "$ne": parseInt(e.value.objkt_amount) } },
+          { xtz_per_objkt: { "$ne": parseInt(e.value.xtz_per_objkt) } }
         ]
-    }
-    const update = {
-      "$set": {
-        token_id: parseInt(e.value.objkt_id), 
-        issuer: e.value.issuer,
-        status: e.active,
-        objkt_amount: parseInt(e.value.objkt_amount),
-        xtz_per_objkt: parseInt(e.value.xtz_per_objkt)
       }
+      const update = {
+        "$set": {
+          token_id: parseInt(e.value.objkt_id),
+          issuer: e.value.issuer,
+          status: e.active,
+          objkt_amount: parseInt(e.value.objkt_amount),
+          xtz_per_objkt: parseInt(e.value.xtz_per_objkt)
+        }
+      }
+      const options = { upsert: true };
+      console.log(e.id, "swap_id:", e.key) //, e.value, e.active)
+      let r = await swaps.updateOne(query, update, options)
+      if (r.modifiedCount === 1 || r.upsertedId !== null) {
+        //console.log("t", r.modifiedCount, r.upsertedId)
+        return true //updated or inserted something new
+      } else {
+        //console.log("f", r.modifiedCount, r.upsertedId)
+        return false //change from false to true to interate thru all results.
+      }
+    } catch (err) {
+      console.log('err', e.key, err)
+      return false
     }
-    const options = { upsert: true };
-    console.log(e.id, "swap_id:", e.key) //, e.value, e.active)
-    let r = await swaps.updateOne(query, update, options)
-    if (r.modifiedCount === 1 || r.upsertedId !== null ) {
-      //console.log("t", r.modifiedCount, r.upsertedId)
-      return true //updated or inserted something new
-    } else {
-      //console.log("f", r.modifiedCount, r.upsertedId)
-      return false //change from false to true to interate thru all results.
-    }
-  } catch (err) {
-    console.log('err', e.key, err)
-    return false
-  }
-})
+  })
 
   var promise = Promise.all(res.map(e => e))
 
   promise.then(async (results) => {
-    if (!results.every( e => e === false)) { //looks at all results to see if there was a change
+    if (!results.every(e => e === false)) { //looks at all results to see if there was a change
       await getSwaps(arr, counter + 100, swaps) //fetch more records if some results were updated
     }
   })
@@ -179,7 +179,7 @@ const getSwaps = async(arr,counter,swaps) => {
 // method to populate the DB with user hDAO via upsert. 
 // Full refresh takes around 2 mins (3k records).
 
-const getHDAOBalances = async(arr,counter,hDAOBalances) => {
+const getHDAOBalances = async (arr, counter, hDAOBalances) => {
   /*
   https://api.tzkt.io/v1/bigmaps/515/keys?sort.desc=id&select=key,value&offset=0&limit=100
   limit can be up to 1000
@@ -196,31 +196,31 @@ const getHDAOBalances = async(arr,counter,hDAOBalances) => {
     .then(res => res.data)
   res = await res.map(async e => {
 
-  try {
-    const query = { 
-      wallet: e.key.address, balance: {"$ne": parseInt(e.value)} 
+    try {
+      const query = {
+        wallet: e.key.address, balance: { "$ne": parseInt(e.value) }
+      }
+      const update = { "$set": { value: parseInt(e.value) } }
+      const options = { upsert: true }
+      console.log("wallet:", e.key.address)
+      let r = await hDAOBalances.updateOne(query, update, options)
+      if (r.modifiedCount === 1 || r.upsertedId !== null) {
+        //console.log("t", r.modifiedCount, r.upsertedId)
+        return true //updated or inserted something new
+      } else {
+        //console.log("f", r.modifiedCount, r.upsertedId)
+        return false //change from false to true to interate thru all results.
+      }
+    } catch (err) {
+      console.log('err', e.key, err)
+      return false
     }
-    const update = {"$set": {value: parseInt(e.value)}}
-    const options = { upsert: true }
-    console.log("wallet:", e.key.address)
-    let r = await hDAOBalances.updateOne(query, update, options)
-    if (r.modifiedCount === 1 || r.upsertedId !== null ) {
-      //console.log("t", r.modifiedCount, r.upsertedId)
-      return true //updated or inserted something new
-    } else {
-      //console.log("f", r.modifiedCount, r.upsertedId)
-      return false //change from false to true to interate thru all results.
-    }
-  } catch (err) {
-    console.log('err', e.key, err)
-    return false
-  }
-})
+  })
 
   var promise = Promise.all(res.map(e => e))
 
   promise.then(async (results) => {
-    if (!results.every( e => e === false)) { //looks at all results to see if there was a change
+    if (!results.every(e => e === false)) { //looks at all results to see if there was a change
       await getHDAOBalances(arr, counter + 50, hDAOBalances) //fetch more records if some results were updated
     }
   })
@@ -231,23 +231,23 @@ const getHDAOBalances = async(arr,counter,hDAOBalances) => {
 
 
 //////////////
-const getRoyalties = async(arr,counter,objkts) => {
+const getRoyalties = async (arr, counter, objkts) => {
 
   // https://api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&offset=0&limit=10
   // limit can be up to 1000
   // default is in ascending order
   // {"key":"152","value":{"issuer":"tz1UBZUkXpKGhYsP5KtzDNqLLchwF4uHrGjw","royalties":"100"}}
   let res = await axios.get("https://api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&limit=20&offset=" + counter)
-  .then(res => res.data)
+    .then(res => res.data)
   res = await res.map(async e => {
 
     try {
-      const query = { "token_id": parseInt(e.key), royalties: {"$ne": parseInt(e.value.royalties)/1000 } }
-      const update = { "$set": {"royalties": parseInt(e.value.royalties)/1000 } }
+      const query = { "token_id": parseInt(e.key), royalties: { "$ne": parseInt(e.value.royalties) / 1000 } }
+      const update = { "$set": { "royalties": parseInt(e.value.royalties) / 1000 } }
       console.log(e.key, e.value)
       let r = await objkts.findOneAndUpdate(query, update)
       console.log(r.lastErrorObject.updatedExisting)
-      if (r.lastErrorObject.updatedExisting === true ) {
+      if (r.lastErrorObject.updatedExisting === true) {
         return true //updated or inserted something new
       } else {
         return false //change from false to true to interate thru all results.
@@ -261,7 +261,7 @@ const getRoyalties = async(arr,counter,objkts) => {
   var promise = Promise.all(res.map(e => e))
 
   promise.then(async (results) => {
-    if (!results.every( e => e === false)) {
+    if (!results.every(e => e === false)) {
       await getRoyalties(arr, counter + 20, objkts)
     }
   })
@@ -317,42 +317,40 @@ const kt = 'KT1P69B8exDGuqNysBweuZJSqAmaD4dU3gtU'
 
 const getRegistries = async () => {
 
-	let res = await axios.get('https://api.better-call.dev/v1/bigmap/mainnet/3536/keys').then(res => res.data)
+  let res = await axios.get('https://api.better-call.dev/v1/bigmap/mainnet/3536/keys').then(res => res.data)
 
-	return res.map(e => {
-		return { tz : e.data.key.value, subjkt : e.data.value !== null ? e.data.value.value : null }
-	})
+  return res.map(e => {
+    return { tz: e.data.key.value, subjkt: e.data.value !== null ? e.data.value.value : null }
+  })
 
 }
 
 const getSubjktsMetadata = async () => {
 
-	let res = await axios.get('https://api.better-call.dev/v1/bigmap/mainnet/3538/keys').then(res => res.data)
+  let res = await axios.get('https://api.better-call.dev/v1/bigmap/mainnet/3538/keys').then(res => res.data)
 
-	res = res.map(e => { 
-		return { subjkt : e.data.key.value, ipfs : e.data.value !== null ? e.data.value.value : null }
-	})
+  res = res.map(e => {
+    return { subjkt: e.data.key.value, ipfs: e.data.value !== null ? e.data.value.value : null }
+  })
 
-	return res.map(async e => {
-		if (e.ipfs !== null) {
-			e.metadata = await axios.get(`https://ipfs.io/ipfs/${(e.ipfs).split('//')[1]}`).then(res => res.data)
-			return e
-		} else {
-			return e
-		}
-	})
-	
+  return res.map(async e => {
+    if (e.ipfs !== null) {
+      e.metadata = await axios.get(`https://ipfs.io/ipfs/${(e.ipfs).split('//')[1]}`).then(res => res.data)
+      return e
+    } else {
+      return e
+    }
+  })
+
 }
 
 const merge = async (subjkt) => {
 
-	let promise = Promise.all((await getSubjktsMetadata()).map(e => e))
-  	promise.then(async (metadata) => {
-      //console.log(metadata)
-    	let result = _.merge(_.keyBy(await getRegistries(), 'subjkt'), _.keyBy(metadata, 'subjkt'))
-      await subjkt.insertMany(_.values(result))
-  	})
-    //console.log(await getRegistries())
+  let promise = Promise.all((await getSubjktsMetadata()).map(e => e))
+  promise.then(async (metadata) => {
+    let result = _.merge(_.keyBy(await getRegistries(), 'subjkt'), _.keyBy(metadata, 'subjkt'))
+    await subjkt.insertMany(_.values(result))
+  })
 }
 
 const insertSubjkts = async () => {
@@ -416,9 +414,9 @@ const insertHDAOBalances = async () => {
 //insertTokenCurationBalance()
 //insertSwaps()
 //insertHDAOBalances()
-insertSubjkts()
+//insertSubjkts()
 
-/* module.exports.insert = async (event) => {
+module.exports.insert = async (event) => {
   await insertFeed()
   await insertRoyalties()
   await insertTokenOwners()
@@ -429,5 +427,4 @@ insertSubjkts()
   return {
     status : 200
   }
-};
- */
+}
