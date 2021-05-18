@@ -1,6 +1,7 @@
 'use strict'
 
 const axios = require('axios')
+const _ = require('lodash')
 const MongoClient = require('mongodb').MongoClient
 require('dotenv').config()
 
@@ -304,6 +305,66 @@ const getFeed = async (arr, counter, objkts) => {
 
 }
 
+///////
+// subjkts methods
+
+const registries = 3536
+const subjkts = 3537
+const subjkts_metadata = 3538
+
+const kt = 'KT1P69B8exDGuqNysBweuZJSqAmaD4dU3gtU'
+//https://api.better-call.dev/v1/contract/mainnet/KT1P69B8exDGuqNysBweuZJSqAmaD4dU3gtU/storage
+
+const getRegistries = async () => {
+
+	let res = await axios.get('https://api.better-call.dev/v1/bigmap/mainnet/3536/keys').then(res => res.data)
+
+	return res.map(e => {
+		return { tz : e.data.key.value, subjkt : e.data.value !== null ? e.data.value.value : null }
+	})
+
+}
+
+const getSubjktsMetadata = async () => {
+
+	let res = await axios.get('https://api.better-call.dev/v1/bigmap/mainnet/3538/keys').then(res => res.data)
+
+	res = res.map(e => { 
+		return { subjkt : e.data.key.value, ipfs : e.data.value !== null ? e.data.value.value : null }
+	})
+
+	return res.map(async e => {
+		if (e.ipfs !== null) {
+			e.metadata = await axios.get(`https://ipfs.io/ipfs/${(e.ipfs).split('//')[1]}`).then(res => res.data)
+			return e
+		} else {
+			return e
+		}
+	})
+	
+}
+
+const merge = async (subjkt) => {
+
+	let promise = Promise.all((await getSubjktsMetadata()).map(e => e))
+  	promise.then(async (metadata) => {
+      //console.log(metadata)
+    	let result = _.merge(_.keyBy(await getRegistries(), 'subjkt'), _.keyBy(metadata, 'subjkt'))
+      await subjkt.insertMany(_.values(result))
+  	})
+    //console.log(await getRegistries())
+}
+
+const insertSubjkts = async () => {
+  await client.connect()
+  const database = client.db('OBJKTs-DB')
+  const subjkt = database.collection('subjkt')
+  await merge(subjkt)
+  // for string?
+  // await subjkt.createIndex( { 'subjkt' : 1 }, { unique : true } ) 
+
+}
+
 const insertFeed = async () => {
   await client.connect()
   const database = client.db('OBJKTs-DB')
@@ -355,15 +416,18 @@ const insertHDAOBalances = async () => {
 //insertTokenCurationBalance()
 //insertSwaps()
 //insertHDAOBalances()
+insertSubjkts()
 
-module.exports.insert = async (event) => {
+/* module.exports.insert = async (event) => {
   await insertFeed()
   await insertRoyalties()
   await insertTokenOwners()
   await insertTokenCurationBalance()
   await insertSwaps()
   await insertHDAOBalances()
+  //await insertSubjkts()
   return {
     status : 200
   }
 };
+ */
