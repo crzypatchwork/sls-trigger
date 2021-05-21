@@ -231,7 +231,7 @@ const getHDAOBalances = async (arr, counter, hDAOBalances) => {
 
 
 //////////////
-const getRoyalties = async (arr, counter, objkts) => {
+const getRoyalties = async (arr, counter, royalties) => {
 
   // https://api.tzkt.io/v1/bigmaps/522/keys?sort.desc=id&select=key,value&offset=0&limit=10
   // limit can be up to 1000
@@ -242,14 +242,29 @@ const getRoyalties = async (arr, counter, objkts) => {
   res = await res.map(async e => {
 
     try {
-      const query = { "token_id": parseInt(e.key), royalties: { "$ne": parseInt(e.value.royalties) / 1000 } }
-      const update = { "$set": { "royalties": parseInt(e.value.royalties) / 1000 } }
+      const query = { 
+        token_id: parseInt(e.key),
+        "$or": [
+          { royalties: { "$ne": parseInt(e.value.royalties) / 1000 } },
+          { creator: { "$ne": e.value.issuer} }
+        ]
+      }
+      console.log(JSON.stringify(query))
+      const update = {
+        "$set": { 
+        //  token_id: parseInt(e.key),
+          royalties: parseInt(e.value.royalties) / 1000,
+          creator: e.value.issuer
+        }
+      }
+      const options = { upsert: true }
       console.log(e.key, e.value)
-      let r = await objkts.findOneAndUpdate(query, update)
-      console.log(r.lastErrorObject.updatedExisting)
-      if (r.lastErrorObject.updatedExisting === true) {
+      let r = await royalties.updateOne(query, update, options)
+      if (r.modifiedCount === 1 || r.upsertedId !== null) {
+        //console.log("t", r.modifiedCount, r.upsertedId)
         return true //updated or inserted something new
       } else {
+        //console.log("f", r.modifiedCount, r.upsertedId)
         return false //change from false to true to interate thru all results.
       }
     } catch (err) {
@@ -262,7 +277,7 @@ const getRoyalties = async (arr, counter, objkts) => {
 
   promise.then(async (results) => {
     if (!results.every(e => e === false)) {
-      await getRoyalties(arr, counter + 20, objkts)
+      await getRoyalties(arr, counter + 20, royalties)
     }
   })
   console.log('end')
@@ -374,8 +389,8 @@ const insertFeed = async () => {
 const insertRoyalties = async () => {
   await client.connect()
   const database = client.db('OBJKTs-DB')
-  const objkts = database.collection('metadata')
-  await getRoyalties([], 0, objkts)
+  const royalties = database.collection('royalties')
+  await getRoyalties([], 0, royalties)
 }
 
 const insertTokenOwners = async () => {
